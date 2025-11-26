@@ -1,26 +1,39 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  /* Mendefinisikan Warna sebagai Variabel Tailwind */
+  --color-background: #f8f9fb;
+  --color-foreground: #0e121b;
+  
+  --color-primary: #123891;
+  --color-primary-foreground: #ffffff;
+  
+  --color-muted: #e8ebf3;
+  --color-muted-foreground: #4f6596;
+  
+  --color-border: #d0d7e6;
+  
+  --font-sans: var(--font-geist-sans), Arial, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* Setting Default Body */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+}
+
+/* Custom Components menggunakan @layer components */
+@layer components {
+  .form-input {
+    @apply w-full rounded-lg border border-border bg-white h-14 px-4 text-base outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200 placeholder-muted-foreground;
+  }
+
+  .btn-primary {
+    @apply flex items-center justify-center rounded-lg bg-primary text-white font-bold hover:opacity-90 transition-opacity duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  
+  .btn-secondary {
+    @apply flex items-center justify-center rounded-lg bg-muted text-foreground font-bold hover:bg-gray-200 transition-colors duration-200;
+  }
 }
