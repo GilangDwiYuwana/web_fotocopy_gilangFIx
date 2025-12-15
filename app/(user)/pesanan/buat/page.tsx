@@ -2,12 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import Navbar from "@/components/layouts/Navbar";
-import FileUpload from '@/components/forms/FileUpload';
+import FileUpload from "@/components/forms/FileUpload";
 import { useRouter } from 'next/navigation';
 // Import Server Actions
 import { getServicesForOrder, createOrder } from '@/src/actions/orderActions';
+// Import hook
+import { useAuth } from '@/src/hooks/useAuth';
 
-// --- IMPORT LIBRARY PDF READER (Pertahankan kode kamu) ---
+// --- IMPORT LIBRARY PDF READER ---
 import * as pdfjs from 'pdfjs-dist';
 // @ts-ignore
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -16,9 +18,20 @@ type Service = { id: number; name: string; category: string; price: number };
 
 export default function BuatPesanan() {
   const router = useRouter();
+  // Ambil status autentikasi dari hook
+  const { isLoggedIn, isChecking } = useAuth(); 
+
+  // --- LOGIKA MENDAPATKAN USER ID DARI LOCALSTORAGE ---
+  const getUserId = () => {
+    if (typeof window !== 'undefined') {
+        const userIdString = localStorage.getItem('user_session_id');
+        return userIdString ? Number(userIdString) : null;
+    }
+    return null;
+  };
 
   // --- STATE DATABASE ---
-  const [dbServices, setDbServices] = useState<Service[]>([]); // Semua data mentah
+  const [dbServices, setDbServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
 
   // --- STATE FORM ---
@@ -29,64 +42,67 @@ export default function BuatPesanan() {
   // Pilihan User
   const [selectedPaperId, setSelectedPaperId] = useState<number>(0);
   const [selectedFinishingId, setSelectedFinishingId] = useState<number>(0);
-  const [sizeMode, setSizeMode] = useState('a4'); // 'a4' | 'f4' | 'a3'
-  const [colorMode, setColorMode] = useState('bw'); // 'bw' | 'color'
-  
+  const [sizeMode, setSizeMode] = useState('a4');
+  const [colorMode, setColorMode] = useState('bw');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 1. Load Data dari Database
+
+  // ===============================================
+  // !!! KUNCI 1: REDIRECT GUARD & LOAD DATA !!!
+  // ===============================================
   useEffect(() => {
-    async function loadData() {
-      try {
-        const data = await getServicesForOrder();
-        setDbServices(data);
+    // 1. Jika masih checking status login, tunggu sebentar
+    if (isChecking) return;
 
-        // Set Default Paper (Cari kategori kertas termurah/pertama)
-        const papers = data.filter(s => s.category === 'kertas');
-        if (papers.length > 0) setSelectedPaperId(papers[0].id);
-      } catch (error) {
-        console.error("Gagal load data", error);
-      } finally {
-        setLoading(false);
-      }
+    // 2. Jika pengecekan selesai dan user BELUM login
+    if (!isLoggedIn) {
+      router.push('/login'); // Redirect paksa ke halaman Login
+      return;
     }
-    loadData();
-  }, []);
 
-  // 2. Filter Data untuk UI
+    // 3. Jika pengecekan selesai dan user SUDAH login, baru load data
+    loadData();
+  }, [isLoggedIn, isChecking, router]); 
+
+  // --- Logika Load Data dari Database ---
+  async function loadData() {
+    try {
+      const data = await getServicesForOrder();
+      setDbServices(data);
+
+      const papers = data.filter(s => s.category === 'kertas');
+      if (papers.length > 0) setSelectedPaperId(papers[0].id);
+    } catch (error) {
+      console.error("Gagal load data", error);
+    } finally {
+      setLoading(false);
+    }
+  }
+  
+  // --- KODE KALKULASI HARGA ---
   const papers = dbServices.filter(s => s.category === 'kertas');
   const finishings = dbServices.filter(s => s.category === 'finishing');
-  
-  // Cari service add-on di database (misal: "Ukuran A3", "Warna")
   const addonA3 = dbServices.find(s => s.name.toLowerCase().includes('a3'));
   const addonF4 = dbServices.find(s => s.name.toLowerCase().includes('f4'));
   const addonColor = dbServices.find(s => s.category === 'warna');
-
-  // 3. Kalkulasi Harga Real-time
   const selectedPaper = papers.find(p => p.id === selectedPaperId);
   const selectedFinishing = finishings.find(f => f.id === selectedFinishingId);
 
-  // Harga Dasar
   let basePrice = selectedPaper ? selectedPaper.price : 0;
-  
-  // Tambahan Harga Ukuran (Jika ada di DB)
   let sizeMarkup = 0;
   if (sizeMode === 'a3' && addonA3) sizeMarkup = addonA3.price;
   if (sizeMode === 'f4' && addonF4) sizeMarkup = addonF4.price;
-
-  // Tambahan Harga Warna (Jika ada di DB)
   let colorMarkup = 0;
   if (colorMode === 'color' && addonColor) colorMarkup = addonColor.price;
-
   const finishingPrice = selectedFinishing ? selectedFinishing.price : 0;
   
-  // RUMUS: (Harga Kertas + Markup Ukuran + Markup Warna) * Total Lembar + (Finishing * Rangkap)
   const totalSheets = pageCount * copies;
   const printCost = (basePrice + sizeMarkup + colorMarkup) * totalSheets;
   const finishCost = finishingPrice * copies;
   const totalPrice = printCost + finishCost;
 
-  // --- LOGIKA BACA PDF (Dari kode kamu) ---
+
+  // --- LOGIKA BACA PDF ---
   const handleFileSelect = async (file: File) => {
     if (!file) return;
     setPageCount(1);
@@ -108,51 +124,30 @@ export default function BuatPesanan() {
 
   // --- SUBMIT KE DATABASE ---
   async function handleSubmit() {
+    const userId = getUserId();
+    if (!userId) {
+        alert("Sesi user hilang. Silakan login ulang!");
+        router.push('/login');
+        return;
+    }
+    
     setIsSubmitting(true);
     try {
-      // Siapkan item yang mau disimpan ke DB
       const itemsToSave = [];
-
-      // 1. Item Kertas (Utama)
-      if (selectedPaperId) {
-        itemsToSave.push({ 
-            serviceId: selectedPaperId, 
-            qty: totalSheets, 
-            price: basePrice 
-        });
-      }
-
-      // 2. Item Finishing (Jika ada)
-      if (selectedFinishingId) {
-        itemsToSave.push({ 
-            serviceId: selectedFinishingId, 
-            qty: copies, 
-            price: finishingPrice 
-        });
-      }
-
-      // 3. Item Addon Warna (Jika dipilih)
-      if (colorMode === 'color' && addonColor) {
-        itemsToSave.push({ 
-            serviceId: addonColor.id, 
-            qty: totalSheets, 
-            price: addonColor.price 
-        });
-      }
-      
-      // 4. Item Addon Ukuran (Jika A3/F4)
+      if (selectedPaperId) itemsToSave.push({ serviceId: selectedPaperId, qty: totalSheets, price: basePrice });
+      if (selectedFinishingId) itemsToSave.push({ serviceId: selectedFinishingId, qty: copies, price: finishingPrice });
+      if (colorMode === 'color' && addonColor) itemsToSave.push({ serviceId: addonColor.id, qty: totalSheets, price: addonColor.price });
       if (sizeMode === 'a3' && addonA3) itemsToSave.push({ serviceId: addonA3.id, qty: totalSheets, price: addonA3.price });
       if (sizeMode === 'f4' && addonF4) itemsToSave.push({ serviceId: addonF4.id, qty: totalSheets, price: addonF4.price });
 
-      const dummyUserId = 1; // Ganti dengan user session nanti
-
       const orderId = await createOrder({
-        userId: dummyUserId,
+        userId: userId, 
         items: itemsToSave,
         total: totalPrice
       });
 
-      router.push(`/pembayaran/${orderId}`);
+      // --- PERBAIKAN: REDIRECT KE /pesanan/bayar/[id] ---
+      router.push(`/pesanan/bayar/${orderId}`);
 
     } catch (error) {
       console.error(error);
@@ -163,7 +158,14 @@ export default function BuatPesanan() {
 
   const formatRupiah = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center">Memuat Data Database...</div>;
+  if (isChecking || (loading && isLoggedIn)) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8f9fb]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#123891]"></div>
+        <p className="mt-4 text-[#4f6596]">Mengecek sesi dan memuat data...</p>
+    </div>
+  );
+  
+  if (!isLoggedIn) return null; 
 
   return (
     <>
@@ -175,12 +177,10 @@ export default function BuatPesanan() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* === KOLOM KIRI: FORM INPUT === */}
           <div className="lg:col-span-2 space-y-8">
-            
-            {/* Bagian 1: Upload */}
+            {/* Upload Section */}
             <section className="bg-white p-6 rounded-xl border shadow-sm">
-              <h2 className="text-lg font-semibold mb-4 text-[#123891]">1. Upload Dokumen</h2>
+              <h2 className="text-lg font-semibold mb-4 text-[#123891]">1. Unggah Dokumen</h2>
               <FileUpload onFileSelect={handleFileSelect} />
               {isReading ? (
                 <p className="text-sm text-blue-600 mt-2 animate-pulse">Sedang menghitung halaman...</p>
@@ -189,11 +189,10 @@ export default function BuatPesanan() {
               )}
             </section>
 
-            {/* Bagian 2: Spesifikasi (DINAMIS DARI DB) */}
+            {/* Spesifikasi Section */}
             <section className="bg-white p-6 rounded-xl border shadow-sm space-y-6">
               <h2 className="text-lg font-semibold mb-4 text-[#123891]">2. Spesifikasi Cetak</h2>
 
-              {/* Pilihan Ukuran & Warna */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <span className="block text-sm font-bold mb-2 text-gray-700">Ukuran Kertas</span>
@@ -221,7 +220,6 @@ export default function BuatPesanan() {
                 </div>
               </div>
 
-              {/* Dropdown Kertas & Finishing (DATA DARI DB) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  <label className="block">
                     <span className="text-sm font-bold mb-2 text-gray-700 block">Jenis Kertas</span>
@@ -242,7 +240,6 @@ export default function BuatPesanan() {
                  </label>
               </div>
 
-              {/* Jumlah Halaman & Copy */}
               <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
                 <h3 className="text-sm font-bold text-[#123891] mb-3">Detail Kuantitas</h3>
                 <div className="grid grid-cols-2 gap-4">
@@ -264,7 +261,6 @@ export default function BuatPesanan() {
             </section>
           </div>
 
-          {/* === KOLOM KANAN: RINGKASAN HARGA === */}
           <div className="lg:col-span-1">
             <div className="bg-white p-6 rounded-xl border shadow-lg sticky top-24">
               <h3 className="font-bold text-lg mb-4 text-gray-800 pb-2 border-b">Ringkasan Pesanan</h3>
