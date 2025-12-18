@@ -1,6 +1,6 @@
 'use server';
 
-import { prisma } from '@/src/lib/prisma';
+import { prisma } from '@/src/lib/prisma'; 
 import { revalidatePath } from 'next/cache';
 
 // --- TIPE DATA FRONTEND ---
@@ -64,9 +64,10 @@ export async function getOrderById(orderIdString: string) {
     status: mapStatus(order.status, order.payment_status),
     items: order.order_items.map((item) => ({
       serviceName: item.services.name,
-      category: item.services.category,
+      // Perbaikan merah: Jika category null, pakai string kosong
+      category: (item.services.category || '').toString(),
       qty: item.quantity,
-      price: Number(item.unit_price), // Menggunakan harga saat transaksi
+      price: Number(item.unit_price), 
       total: Number(item.total_price)
     })),
   };
@@ -134,11 +135,11 @@ export async function deleteOrder(orderIdString: string) {
 }
 
 // ==========================================
-// 5. BUAT PESANAN BARU (UNTUK CUSTOMER - FLEKSIBEL)
+// 5. BUAT PESANAN BARU (UNTUK CUSTOMER)
 // ==========================================
 export async function createOrder(data: {
   userId: number;
-  items: { serviceId: number; qty: number; price: number }[]; // Array item agar fleksibel
+  items: { serviceId: number; qty: number; price: number }[];
   total: number;
 }) {
   const orderIdString = `ORD-${Date.now()}`;
@@ -151,7 +152,6 @@ export async function createOrder(data: {
       status: 'Menunggu',
       payment_status: 'Pending',
       
-      // Simpan banyak item sekaligus (Kertas + Finishing + Addon Warna/Ukuran)
       order_items: {
         create: data.items.map(item => ({
           service_id: item.serviceId,
@@ -167,7 +167,7 @@ export async function createOrder(data: {
 }
 
 // ==========================================
-// 6. AMBIL DAFTAR LAYANAN (DROPDOWN FLEXIBLE)
+// 6. AMBIL DAFTAR LAYANAN (DROPDOWN)
 // ==========================================
 export async function getServicesForOrder() {
   const services = await prisma.services.findMany({
@@ -176,37 +176,37 @@ export async function getServicesForOrder() {
   });
 
   return services.map(s => ({
-    id: s.id, // ID Database
+    id: s.id, 
     name: s.name,
-    category: s.category.toLowerCase(), // 'kertas', 'finishing', 'warna', 'ukuran'
+    // PERBAIKAN DI SINI: Tambahkan ( || '') agar aman dari null
+    category: (s.category || '').toString().toLowerCase(), 
     price: Number(s.price)
   }));
 }
 
-// ... (kode import sebelumnya)
-
+// ==========================================
 // 7. AMBIL PESANAN KHUSUS USER TERTENTU (RIWAYAT)
+// ==========================================
 export async function getUserOrders(userId: number) {
   const orders = await prisma.orders.findMany({
-    where: { user_id: userId }, // Filter berdasarkan User ID
+    where: { user_id: userId },
     include: {
-      order_items: true, // Kita butuh ini untuk menghitung jumlah item
+      order_items: true,
     },
     orderBy: {
-      created_at: 'desc', // Pesanan terbaru di atas
+      created_at: 'desc',
     },
   });
 
   return orders.map((o) => {
-    // Hitung total jumlah barang (qty) dalam satu pesanan
     const totalItems = o.order_items.reduce((acc, item) => acc + item.quantity, 0);
 
     return {
       id: o.order_id,
-      date: o.created_at.toISOString(), // Kirim format ISO lengkap biar aman
+      date: o.created_at.toISOString(),
       items: totalItems,
       total: Number(o.total_amount),
-      status: mapStatus(o.status, o.payment_status), // Pakai helper yang sudah ada di file ini
+      status: mapStatus(o.status, o.payment_status),
     };
   });
 }
