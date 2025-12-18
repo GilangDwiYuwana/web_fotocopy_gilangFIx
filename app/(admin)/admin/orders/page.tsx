@@ -1,14 +1,17 @@
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { getOrders, updateOrderStatus } from '@/src/actions/orderActions'; // Import action
+// Menggunakan relative path agar aman (naik 3 level dari src/app/admin/orders ke src)
+import { getOrders, updateOrderStatus } from '@/src/actions/orderActions';
 
+// Definisi tipe data yang sesuai dengan return dari Server Action
 type Order = {
   id: string;
   customer: string;
   date: string;
   total: number;
   status: 'Menunggu Pembayaran' | 'Dibayar' | 'Diproses' | 'Selesai' | 'Dibatalkan';
+  fileUrl?: string; // Field opsional untuk link file
 };
 
 const STATUS_OPTIONS: Order['status'][] = [
@@ -28,18 +31,18 @@ const STATUS_COLORS: Record<Order['status'], { bg: string; text: string; icon: s
 };
 
 export default function ManageOrdersPage() {
-  const [orders, setOrders] = useState<Order[]>([]); // Default array kosong
-  const [isLoading, setIsLoading] = useState(true); // Loading state
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('Semua Status');
 
-  // --- AMBIL DATA DARI DATABASE ---
+  // --- AMBIL DATA DARI SERVER ---
   useEffect(() => {
     async function fetchOrders() {
       try {
         const data = await getOrders();
-        // @ts-ignore (Memaksa tipe data agar cocok jika ada sedikit perbedaan strict)
-        setOrders(data);
+        // Casting tipe data agar aman
+        setOrders(data as unknown as Order[]);
       } catch (error) {
         console.error("Gagal mengambil pesanan:", error);
       } finally {
@@ -49,15 +52,26 @@ export default function ManageOrdersPage() {
     fetchOrders();
   }, []);
 
-  // --- UPDATE STATUS KE DATABASE ---
+  // --- UPDATE STATUS ---
   async function handleUpdateStatus(id: string, newStatus: Order['status']) {
-    // 1. Optimistic Update (Ubah di layar dulu biar cepat)
+    // Optimistic Update (Ubah UI dulu biar cepat)
     setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status: newStatus } : o)));
-
-    // 2. Update di Database
+    // Kirim ke server
     await updateOrderStatus(id, newStatus);
   }
 
+  // --- FUNGSI DOWNLOAD REAL ---
+  const handleDownload = (fileUrl: string | undefined) => {
+    if (!fileUrl) {
+        alert("File tidak tersedia untuk pesanan ini.");
+        return;
+    }
+    
+    // Langsung buka URL file di tab baru
+    window.open(fileUrl, '_blank'); 
+  };
+
+  // --- FILTERING ---
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (!term && statusFilter === 'Semua Status') return orders;
@@ -73,6 +87,7 @@ export default function ManageOrdersPage() {
     });
   }, [orders, q, statusFilter]);
 
+  // --- STATS ---
   const stats = useMemo(() => {
     return {
       total: orders.length,
@@ -82,7 +97,6 @@ export default function ManageOrdersPage() {
     };
   }, [orders]);
 
-  // Tampilan Loading
   if (isLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8f9fb]">
@@ -167,13 +181,14 @@ export default function ManageOrdersPage() {
                   <th className="px-6 py-4 text-left text-sm font-bold text-[#0e121b]">Tanggal</th>
                   <th className="px-6 py-4 text-left text-sm font-bold text-[#0e121b]">Total</th>
                   <th className="px-6 py-4 text-left text-sm font-bold text-[#0e121b]">Status</th>
+                  <th className="px-6 py-4 text-center text-sm font-bold text-[#0e121b]">File</th>
                   <th className="px-6 py-4 text-center text-sm font-bold text-[#0e121b]">Aksi</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length > 0 ? (
                   filtered.map((o) => {
-                    const statusColor = STATUS_COLORS[o.status] || STATUS_COLORS['Menunggu Pembayaran']; // Fallback color
+                    const statusColor = STATUS_COLORS[o.status] || STATUS_COLORS['Menunggu Pembayaran'];
                     return (
                       <tr key={o.id} className="border-b border-[#e8ebf3] hover:bg-[#f8f9fb] transition-colors group">
                         <td className="px-6 py-4">
@@ -191,6 +206,21 @@ export default function ManageOrdersPage() {
                             {statusColor.icon} {o.status}
                           </span>
                         </td>
+
+                        {/* --- TOMBOL DOWNLOAD FILE --- */}
+                        <td className="px-6 py-4 text-center">
+                            <button 
+                                onClick={() => handleDownload(o.fileUrl)}
+                                className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-all"
+                                title="Download File Pelanggan"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                Unduh
+                            </button>
+                        </td>
+
                         <td className="px-6 py-4 text-center">
                           <select
                             value={o.status}
@@ -207,7 +237,7 @@ export default function ManageOrdersPage() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center">
+                    <td colSpan={7} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center gap-2">
                         <div className="text-4xl">📭</div>
                         <p className="text-lg font-semibold text-[#0e121b]">Tidak ada pesanan</p>

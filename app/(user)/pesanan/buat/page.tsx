@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+// Menggunakan relative path agar aman dari error build
 import Navbar from "@/components/layouts/Navbar";
 import FileUpload from "@/components/forms/FileUpload";
 import { useRouter } from 'next/navigation';
 // Import Server Actions
-import { getServicesForOrder, createOrder } from '@/src/actions/orderActions';
+import { getServicesForOrder, createOrder, uploadOrderFile } from '@/src/actions/orderActions';
 // Import hook
 import { useAuth } from '@/src/hooks/useAuth';
 
@@ -18,10 +19,8 @@ type Service = { id: number; name: string; category: string; price: number };
 
 export default function BuatPesanan() {
   const router = useRouter();
-  // Ambil status autentikasi dari hook
   const { isLoggedIn, isChecking } = useAuth(); 
 
-  // --- LOGIKA MENDAPATKAN USER ID DARI LOCALSTORAGE ---
   const getUserId = () => {
     if (typeof window !== 'undefined') {
         const userIdString = localStorage.getItem('user_session_id');
@@ -30,11 +29,11 @@ export default function BuatPesanan() {
     return null;
   };
 
-  // --- STATE DATABASE ---
   const [dbServices, setDbServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
 
   // --- STATE FORM ---
+  const [fileToUpload, setFileToUpload] = useState<File | null>(null); // State untuk file
   const [pageCount, setPageCount] = useState(1);
   const [copies, setCopies] = useState(1);
   const [isReading, setIsReading] = useState(false);
@@ -48,23 +47,19 @@ export default function BuatPesanan() {
 
 
   // ===============================================
-  // !!! KUNCI 1: REDIRECT GUARD & LOAD DATA !!!
+  // !!! REDIRECT GUARD & LOAD DATA !!!
   // ===============================================
   useEffect(() => {
-    // 1. Jika masih checking status login, tunggu sebentar
     if (isChecking) return;
 
-    // 2. Jika pengecekan selesai dan user BELUM login
     if (!isLoggedIn) {
-      router.push('/login'); // Redirect paksa ke halaman Login
+      router.push('/login');
       return;
     }
 
-    // 3. Jika pengecekan selesai dan user SUDAH login, baru load data
     loadData();
   }, [isLoggedIn, isChecking, router]); 
 
-  // --- Logika Load Data dari Database ---
   async function loadData() {
     try {
       const data = await getServicesForOrder();
@@ -102,10 +97,13 @@ export default function BuatPesanan() {
   const totalPrice = printCost + finishCost;
 
 
-  // --- LOGIKA BACA PDF ---
+  // --- LOGIKA BACA & SIMPAN FILE ---
   const handleFileSelect = async (file: File) => {
     if (!file) return;
+    
+    setFileToUpload(file); // Simpan file ke state agar bisa diupload nanti
     setPageCount(1);
+    
     if (file.type === 'application/pdf') {
       try {
         setIsReading(true);
@@ -122,7 +120,7 @@ export default function BuatPesanan() {
     }
   };
 
-  // --- SUBMIT KE DATABASE ---
+  // --- SUBMIT: UPLOAD -> CREATE ORDER -> REDIRECT ---
   async function handleSubmit() {
     const userId = getUserId();
     if (!userId) {
@@ -130,9 +128,21 @@ export default function BuatPesanan() {
         router.push('/login');
         return;
     }
+
+    if (!fileToUpload) {
+        alert("Mohon upload dokumen terlebih dahulu!");
+        return;
+    }
     
     setIsSubmitting(true);
     try {
+      // 1. Upload File Fisik ke Server
+      const formData = new FormData();
+      formData.append('file', fileToUpload);
+      
+      const uploadedFileUrl = await uploadOrderFile(formData);
+
+      // 2. Siapkan Data Item
       const itemsToSave = [];
       if (selectedPaperId) itemsToSave.push({ serviceId: selectedPaperId, qty: totalSheets, price: basePrice });
       if (selectedFinishingId) itemsToSave.push({ serviceId: selectedFinishingId, qty: copies, price: finishingPrice });
@@ -140,18 +150,20 @@ export default function BuatPesanan() {
       if (sizeMode === 'a3' && addonA3) itemsToSave.push({ serviceId: addonA3.id, qty: totalSheets, price: addonA3.price });
       if (sizeMode === 'f4' && addonF4) itemsToSave.push({ serviceId: addonF4.id, qty: totalSheets, price: addonF4.price });
 
+      // 3. Simpan Pesanan ke Database (termasuk URL file)
       const orderId = await createOrder({
         userId: userId, 
         items: itemsToSave,
-        total: totalPrice
+        total: totalPrice,
+        fileUrl: uploadedFileUrl // Link file dari hasil upload
       });
 
-      // --- PERBAIKAN: REDIRECT KE /pesanan/bayar/[id] ---
+      // 4. Redirect ke Halaman Pembayaran
       router.push(`/pesanan/bayar/${orderId}`);
 
     } catch (error) {
       console.error(error);
-      alert("Gagal membuat pesanan.");
+      alert("Gagal membuat pesanan. " + error);
       setIsSubmitting(false);
     }
   }
@@ -182,11 +194,7 @@ export default function BuatPesanan() {
             <section className="bg-white p-6 rounded-xl border shadow-sm">
               <h2 className="text-lg font-semibold mb-4 text-[#123891]">1. Unggah Dokumen</h2>
               <FileUpload onFileSelect={handleFileSelect} />
-              {isReading ? (
-                <p className="text-sm text-blue-600 mt-2 animate-pulse">Sedang menghitung halaman...</p>
-              ) : (
-                <p className="text-xs text-gray-400 mt-2">*Halaman PDF akan terhitung otomatis.</p>
-              )}
+              {isReading && <p className="text-sm text-blue-600 mt-2 animate-pulse">Sedang menghitung halaman...</p>}
             </section>
 
             {/* Spesifikasi Section */}
@@ -208,7 +216,7 @@ export default function BuatPesanan() {
                 <div>
                   <span className="block text-sm font-bold mb-2 text-gray-700">Mode Warna</span>
                   <div className="flex gap-3">
-                    <label className={`flex-1 border-2 p-3 rounded-lg cursor-pointer text-center transition-all ${colorMode === 'bw' ? 'border-gray-800 bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <label className={`flex-1 border-2 p-3 rounded-lg cursor-pointer text-center transition-all ${colorMode === 'bw' ? 'border-gray-800 bg-gray-100' : 'border-gray-200 hover:border-gray-300'}`}>
                       <input type="radio" name="color" className="hidden" checked={colorMode === 'bw'} onChange={() => setColorMode('bw')}/>
                       <div className="w-6 h-6 bg-black rounded-full mx-auto mb-1"></div><span className="text-xs font-bold">Hitam Putih</span>
                     </label>
@@ -303,7 +311,7 @@ export default function BuatPesanan() {
                 disabled={isSubmitting}
                 className={`w-full text-white py-3.5 rounded-lg font-bold shadow-md transition-all ${isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#123891] hover:bg-[#0e2c75] hover:shadow-lg'}`}
               >
-                {isSubmitting ? 'Menyimpan...' : 'Lanjut Pembayaran'}
+                {isSubmitting ? 'Mengupload...' : 'Lanjut Pembayaran'}
               </button>
             </div>
           </div>

@@ -23,18 +23,18 @@ model admin_pricing {
 }
 
 model delivery {
-  id                 Int                       @id @default(autoincrement())
-  order_id           Int
-  delivery_method    delivery_delivery_method? @default(Pickup)
-  shipping_address   String?                   @db.Text
-  estimated_delivery DateTime?                 @db.DateTime(0)
-  actual_delivery    DateTime?                 @db.DateTime(0)
-  delivery_cost      Decimal?                  @db.Decimal(10, 2)
-  status             delivery_status?          @default(Pending)
-  tracking_number    String?                   @db.VarChar(100)
-  created_at         DateTime                  @default(now()) @db.Timestamp(0)
-  updated_at         DateTime                  @default(now()) @db.Timestamp(0)
-  orders             orders                    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "delivery_ibfk_1")
+  id               Int                       @id @default(autoincrement())
+  order_id         Int
+  delivery_method  delivery_delivery_method? @default(Pickup)
+  shipping_address String?                   @db.Text
+  estimated_delivery DateTime?               @db.DateTime(0)
+  actual_delivery  DateTime?                 @db.DateTime(0)
+  delivery_cost    Decimal?                  @db.Decimal(10, 2)
+  status           delivery_status?          @default(Pending)
+  tracking_number  String?                   @db.VarChar(100)
+  created_at       DateTime                  @default(now()) @db.Timestamp(0)
+  updated_at       DateTime                  @default(now()) @db.Timestamp(0)
+  orders           orders                    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "delivery_ibfk_1")
 
   @@index([order_id], map: "idx_order_id")
   @@index([status], map: "idx_status")
@@ -68,6 +68,10 @@ model orders {
   payment_status orders_payment_status? @default(Pending)
   payment_method String?                @db.VarChar(50)
   notes          String?                @db.Text
+  
+  // --- KOLOM BARU UNTUK MENYIMPAN FILE UPLOAD ---
+  file_url       String?                @db.Text 
+  
   created_at     DateTime               @default(now()) @db.Timestamp(0)
   updated_at     DateTime               @default(now()) @db.Timestamp(0)
   delivery       delivery[]
