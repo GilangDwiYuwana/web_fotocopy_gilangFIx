@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
-// Menggunakan relative path agar aman (naik 3 level dari src/app/admin/orders ke src)
+// Menggunakan relative path untuk menghindari error module not found (Naik 3 tingkat ke src)
 import { getOrders, updateOrderStatus } from '@/src/actions/orderActions';
 
 // Definisi tipe data yang sesuai dengan return dari Server Action
@@ -11,7 +11,8 @@ type Order = {
   date: string;
   total: number;
   status: 'Menunggu Pembayaran' | 'Dibayar' | 'Diproses' | 'Selesai' | 'Dibatalkan';
-  fileUrl?: string; // Field opsional untuk link file
+  fileUrl?: string;         // Link File Dokumen
+  paymentProofUrl?: string; // Link File Bukti Transfer (Kolom Baru)
 };
 
 const STATUS_OPTIONS: Order['status'][] = [
@@ -63,10 +64,9 @@ export default function ManageOrdersPage() {
   // --- FUNGSI DOWNLOAD REAL ---
   const handleDownload = (fileUrl: string | undefined) => {
     if (!fileUrl) {
-        alert("File tidak tersedia untuk pesanan ini.");
+        alert("File belum tersedia/belum diupload.");
         return;
     }
-    
     // Langsung buka URL file di tab baru
     window.open(fileUrl, '_blank'); 
   };
@@ -181,7 +181,13 @@ export default function ManageOrdersPage() {
                   <th className="px-6 py-4 text-left text-sm font-bold text-[#0e121b]">Tanggal</th>
                   <th className="px-6 py-4 text-left text-sm font-bold text-[#0e121b]">Total</th>
                   <th className="px-6 py-4 text-left text-sm font-bold text-[#0e121b]">Status</th>
+                  
+                  {/* --- KOLOM FILE DOKUMEN --- */}
                   <th className="px-6 py-4 text-center text-sm font-bold text-[#0e121b]">File</th>
+                  
+                  {/* --- KOLOM BARU: BUKTI TF --- */}
+                  <th className="px-6 py-4 text-center text-sm font-bold text-[#0e121b]">Bukti TF</th>
+                  
                   <th className="px-6 py-4 text-center text-sm font-bold text-[#0e121b]">Aksi</th>
                 </tr>
               </thead>
@@ -207,18 +213,36 @@ export default function ManageOrdersPage() {
                           </span>
                         </td>
 
-                        {/* --- TOMBOL DOWNLOAD FILE --- */}
+                        {/* --- TOMBOL DOWNLOAD FILE DOKUMEN --- */}
                         <td className="px-6 py-4 text-center">
                             <button 
                                 onClick={() => handleDownload(o.fileUrl)}
                                 className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-all"
-                                title="Download File Pelanggan"
+                                title="Download File Dokumen"
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                 </svg>
-                                Unduh
+                                File
                             </button>
+                        </td>
+
+                        {/* --- TOMBOL DOWNLOAD BUKTI TRANSFER --- */}
+                        <td className="px-6 py-4 text-center">
+                            {o.paymentProofUrl ? (
+                                <button 
+                                    onClick={() => handleDownload(o.paymentProofUrl)}
+                                    className="inline-flex items-center gap-2 px-3 py-2 bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded-lg text-sm font-medium transition-all"
+                                    title="Download Bukti Transfer"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                                    </svg>
+                                    Bukti
+                                </button>
+                            ) : (
+                                <span className="text-xs text-gray-400 italic">Belum ada</span>
+                            )}
                         </td>
 
                         <td className="px-6 py-4 text-center">
@@ -237,7 +261,7 @@ export default function ManageOrdersPage() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center">
+                    <td colSpan={8} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center gap-2">
                         <div className="text-4xl">📭</div>
                         <p className="text-lg font-semibold text-[#0e121b]">Tidak ada pesanan</p>

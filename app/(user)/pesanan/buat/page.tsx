@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-// Menggunakan relative path agar aman dari error build
+// Menggunakan relative path (../../../) agar aman dari error build
 import Navbar from "@/components/layouts/Navbar";
 import FileUpload from "@/components/forms/FileUpload";
 import { useRouter } from 'next/navigation';
-// Import Server Actions
+
+// Import Server Actions dengan relative path
+// Kita butuh 'uploadOrderFile' yang baru ditambahkan
 import { getServicesForOrder, createOrder, uploadOrderFile } from '@/src/actions/orderActions';
-// Import hook
+// Import hook dengan relative path
 import { useAuth } from '@/src/hooks/useAuth';
 
 // --- IMPORT LIBRARY PDF READER ---
@@ -21,6 +23,7 @@ export default function BuatPesanan() {
   const router = useRouter();
   const { isLoggedIn, isChecking } = useAuth(); 
 
+  // --- AMBIL ID USER DARI LOCALSTORAGE ---
   const getUserId = () => {
     if (typeof window !== 'undefined') {
         const userIdString = localStorage.getItem('user_session_id');
@@ -33,12 +36,11 @@ export default function BuatPesanan() {
   const [loading, setLoading] = useState(true);
 
   // --- STATE FORM ---
-  const [fileToUpload, setFileToUpload] = useState<File | null>(null); // State untuk file
+  const [fileToUpload, setFileToUpload] = useState<File | null>(null); 
   const [pageCount, setPageCount] = useState(1);
   const [copies, setCopies] = useState(1);
   const [isReading, setIsReading] = useState(false);
 
-  // Pilihan User
   const [selectedPaperId, setSelectedPaperId] = useState<number>(0);
   const [selectedFinishingId, setSelectedFinishingId] = useState<number>(0);
   const [sizeMode, setSizeMode] = useState('a4');
@@ -50,13 +52,16 @@ export default function BuatPesanan() {
   // !!! REDIRECT GUARD & LOAD DATA !!!
   // ===============================================
   useEffect(() => {
+    // 1. Tunggu cek login selesai
     if (isChecking) return;
 
+    // 2. Jika belum login, tendang ke halaman login
     if (!isLoggedIn) {
       router.push('/login');
       return;
     }
 
+    // 3. Load data layanan dari database
     loadData();
   }, [isLoggedIn, isChecking, router]); 
 
@@ -65,6 +70,7 @@ export default function BuatPesanan() {
       const data = await getServicesForOrder();
       setDbServices(data);
 
+      // Set default pilihan kertas
       const papers = data.filter(s => s.category === 'kertas');
       if (papers.length > 0) setSelectedPaperId(papers[0].id);
     } catch (error) {
@@ -80,6 +86,7 @@ export default function BuatPesanan() {
   const addonA3 = dbServices.find(s => s.name.toLowerCase().includes('a3'));
   const addonF4 = dbServices.find(s => s.name.toLowerCase().includes('f4'));
   const addonColor = dbServices.find(s => s.category === 'warna');
+  
   const selectedPaper = papers.find(p => p.id === selectedPaperId);
   const selectedFinishing = finishings.find(f => f.id === selectedFinishingId);
 
@@ -97,12 +104,12 @@ export default function BuatPesanan() {
   const totalPrice = printCost + finishCost;
 
 
-  // --- LOGIKA BACA & SIMPAN FILE ---
+  // --- LOGIKA BACA PDF & SIMPAN STATE FILE ---
   const handleFileSelect = async (file: File) => {
     if (!file) return;
     
     setFileToUpload(file); // Simpan file ke state agar bisa diupload nanti
-    setPageCount(1);
+    setPageCount(1);       // Reset jumlah halaman
     
     if (file.type === 'application/pdf') {
       try {
@@ -113,14 +120,15 @@ export default function BuatPesanan() {
         alert(`File terbaca: ${pdf.numPages} Halaman.`);
       } catch (err) {
         console.error(err);
-        alert("Gagal membaca halaman PDF. Silakan isi manual.");
+        // Jangan alert error, cukup log saja agar user tidak panik
+        console.log("Gagal membaca halaman PDF otomatis."); 
       } finally {
         setIsReading(false);
       }
     }
   };
 
-  // --- SUBMIT: UPLOAD -> CREATE ORDER -> REDIRECT ---
+  // --- SUBMIT: UPLOAD DOKUMEN -> CREATE ORDER -> REDIRECT ---
   async function handleSubmit() {
     const userId = getUserId();
     if (!userId) {
@@ -136,10 +144,11 @@ export default function BuatPesanan() {
     
     setIsSubmitting(true);
     try {
-      // 1. Upload File Fisik ke Server
+      // 1. Upload File Fisik ke Server (menggunakan server action baru)
       const formData = new FormData();
       formData.append('file', fileToUpload);
       
+      // Upload dan dapatkan URL file
       const uploadedFileUrl = await uploadOrderFile(formData);
 
       // 2. Siapkan Data Item
@@ -150,12 +159,12 @@ export default function BuatPesanan() {
       if (sizeMode === 'a3' && addonA3) itemsToSave.push({ serviceId: addonA3.id, qty: totalSheets, price: addonA3.price });
       if (sizeMode === 'f4' && addonF4) itemsToSave.push({ serviceId: addonF4.id, qty: totalSheets, price: addonF4.price });
 
-      // 3. Simpan Pesanan ke Database (termasuk URL file)
+      // 3. Simpan Pesanan ke Database (termasuk URL file dokumen)
       const orderId = await createOrder({
         userId: userId, 
         items: itemsToSave,
         total: totalPrice,
-        fileUrl: uploadedFileUrl // Link file dari hasil upload
+        fileUrl: uploadedFileUrl // Simpan link dokumen
       });
 
       // 4. Redirect ke Halaman Pembayaran
@@ -163,13 +172,14 @@ export default function BuatPesanan() {
 
     } catch (error) {
       console.error(error);
-      alert("Gagal membuat pesanan. " + error);
+      alert("Gagal membuat pesanan: " + error);
       setIsSubmitting(false);
     }
   }
 
   const formatRupiah = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
 
+  // --- TAMPILAN LOADING ---
   if (isChecking || (loading && isLoggedIn)) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8f9fb]">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#123891]"></div>
@@ -194,7 +204,7 @@ export default function BuatPesanan() {
             <section className="bg-white p-6 rounded-xl border shadow-sm">
               <h2 className="text-lg font-semibold mb-4 text-[#123891]">1. Unggah Dokumen</h2>
               <FileUpload onFileSelect={handleFileSelect} />
-              {isReading && <p className="text-sm text-blue-600 mt-2 animate-pulse">Sedang menghitung halaman...</p>}
+              {isReading && <p className="text-sm text-blue-600 mt-2">Menghitung halaman...</p>}
             </section>
 
             {/* Spesifikasi Section */}
@@ -203,119 +213,69 @@ export default function BuatPesanan() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <span className="block text-sm font-bold mb-2 text-gray-700">Ukuran Kertas</span>
+                  <span className="block text-sm font-bold mb-2 text-gray-700">Ukuran</span>
                   <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
                     {['a4', 'f4', 'a3'].map((size) => (
-                      <button key={size} onClick={() => setSizeMode(size)} 
-                        className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${sizeMode === size ? 'bg-white text-[#123891] shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700'}`}>
-                        {size.toUpperCase()}
-                      </button>
+                      <button key={size} onClick={() => setSizeMode(size)} className={`flex-1 py-2 rounded-md text-sm font-medium ${sizeMode === size ? 'bg-white text-[#123891] shadow-sm' : 'text-gray-500'}`}>{size.toUpperCase()}</button>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <span className="block text-sm font-bold mb-2 text-gray-700">Mode Warna</span>
+                  <span className="block text-sm font-bold mb-2 text-gray-700">Warna</span>
                   <div className="flex gap-3">
-                    <label className={`flex-1 border-2 p-3 rounded-lg cursor-pointer text-center transition-all ${colorMode === 'bw' ? 'border-gray-800 bg-gray-100' : 'border-gray-200 hover:border-gray-300'}`}>
-                      <input type="radio" name="color" className="hidden" checked={colorMode === 'bw'} onChange={() => setColorMode('bw')}/>
-                      <div className="w-6 h-6 bg-black rounded-full mx-auto mb-1"></div><span className="text-xs font-bold">Hitam Putih</span>
-                    </label>
-                    <label className={`flex-1 border-2 p-3 rounded-lg cursor-pointer text-center transition-all ${colorMode === 'color' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                      <input type="radio" name="color" className="hidden" checked={colorMode === 'color'} onChange={() => setColorMode('color')}/>
-                      <div className="w-6 h-6 bg-gradient-to-tr from-blue-500 via-purple-500 to-red-500 rounded-full mx-auto mb-1"></div><span className="text-xs font-bold">Berwarna</span>
-                    </label>
+                    <button onClick={() => setColorMode('bw')} className={`flex-1 border-2 p-2 rounded-lg text-xs font-bold ${colorMode === 'bw' ? 'border-gray-800 bg-gray-100' : 'border-gray-200'}`}>Hitam Putih</button>
+                    <button onClick={() => setColorMode('color')} className={`flex-1 border-2 p-2 rounded-lg text-xs font-bold ${colorMode === 'color' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>Berwarna</button>
                   </div>
                 </div>
               </div>
-
+              
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  <label className="block">
-                    <span className="text-sm font-bold mb-2 text-gray-700 block">Jenis Kertas</span>
-                    <select value={selectedPaperId} onChange={(e) => setSelectedPaperId(Number(e.target.value))} className="w-full border border-gray-300 rounded-lg p-3 bg-white focus:ring-2 focus:ring-[#123891] outline-none">
-                    {papers.map((p) => (
-                        <option key={p.id} value={p.id}>{p.name} (+ {formatRupiah(p.price)})</option>
-                    ))}
+                    <span className="text-sm font-bold mb-2 text-gray-700 block">Kertas</span>
+                    <select value={selectedPaperId} onChange={(e) => setSelectedPaperId(Number(e.target.value))} className="w-full border rounded-lg p-3">
+                    {papers.map((p) => <option key={p.id} value={p.id}>{p.name} ({formatRupiah(p.price)})</option>)}
                     </select>
                  </label>
                  <label className="block">
                     <span className="text-sm font-bold mb-2 text-gray-700 block">Finishing</span>
-                    <select value={selectedFinishingId} onChange={(e) => setSelectedFinishingId(Number(e.target.value))} className="w-full border border-gray-300 rounded-lg p-3 bg-white focus:ring-2 focus:ring-[#123891] outline-none">
+                    <select value={selectedFinishingId} onChange={(e) => setSelectedFinishingId(Number(e.target.value))} className="w-full border rounded-lg p-3">
                     <option value={0}>Tanpa Finishing</option>
-                    {finishings.map((f) => (
-                        <option key={f.id} value={f.id}>{f.name} (+ {formatRupiah(f.price)})</option>
-                    ))}
+                    {finishings.map((f) => <option key={f.id} value={f.id}>{f.name} ({formatRupiah(f.price)})</option>)}
                     </select>
                  </label>
               </div>
 
-              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                <h3 className="text-sm font-bold text-[#123891] mb-3">Detail Kuantitas</h3>
+              <div className="bg-blue-50 p-4 rounded-xl">
                 <div className="grid grid-cols-2 gap-4">
                     <div>
-                       <label className="block text-xs font-bold mb-1 text-gray-500">Halaman per File</label>
-                       <input type="number" min="1" value={pageCount} onChange={(e) => setPageCount(Math.max(1, Number(e.target.value)))} className="w-full border border-gray-300 rounded-lg p-2 font-bold text-gray-800" />
-                       <p className="text-[10px] text-gray-500 mt-1">Terisi otomatis jika PDF</p>
+                       <label className="block text-xs font-bold mb-1">Halaman</label>
+                       <input type="number" min="1" value={pageCount} onChange={(e) => setPageCount(Math.max(1, Number(e.target.value)))} className="w-full border rounded-lg p-2 font-bold" />
                     </div>
                     <div>
-                       <label className="block text-xs font-bold mb-1 text-gray-500">Jumlah Rangkap (Copy)</label>
-                       <div className="flex items-center">
-                           <input type="number" min="1" value={copies} onChange={(e) => setCopies(Math.max(1, Number(e.target.value)))} className="w-full border border-gray-300 rounded-lg p-2 font-bold text-gray-800" />
-                           <span className="ml-2 text-sm font-bold text-gray-500">Set</span>
-                       </div>
+                       <label className="block text-xs font-bold mb-1">Rangkap</label>
+                       <input type="number" min="1" value={copies} onChange={(e) => setCopies(Math.max(1, Number(e.target.value)))} className="w-full border rounded-lg p-2 font-bold" />
                     </div>
                 </div>
               </div>
-
             </section>
           </div>
 
           <div className="lg:col-span-1">
             <div className="bg-white p-6 rounded-xl border shadow-lg sticky top-24">
-              <h3 className="font-bold text-lg mb-4 text-gray-800 pb-2 border-b">Ringkasan Pesanan</h3>
-              
+              <h3 className="font-bold text-lg mb-4 pb-2 border-b">Ringkasan</h3>
               <div className="space-y-3 text-sm text-gray-600 mb-6">
-                <div className="flex justify-between">
-                   <span>Isi File</span>
-                   <span className="font-semibold text-gray-800">{pageCount} Halaman</span>
-                </div>
-                <div className="flex justify-between">
-                   <span>Rangkap</span>
-                   <span className="font-semibold text-gray-800">{copies} Kali</span>
-                </div>
-                
-                <div className="border-t border-dashed my-2"></div>
-
-                <div className="flex justify-between">
-                  <span>Ukuran & Warna</span>
-                  <span className="font-semibold text-gray-800 uppercase">{sizeMode} - {colorMode}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Bahan</span>
-                  <span className="font-semibold text-gray-800">{selectedPaper?.name || '-'}</span>
-                </div>
-                {selectedFinishing && (
-                    <div className="flex justify-between">
-                    <span>Finishing</span>
-                    <span className="font-semibold text-gray-800">{selectedFinishing.name}</span>
-                    </div>
-                )}
+                <div className="flex justify-between"><span>Total Lembar</span><span className="font-bold">{totalSheets}</span></div>
+                <div className="flex justify-between"><span>Spesifikasi</span><span className="font-bold uppercase">{sizeMode} - {colorMode}</span></div>
               </div>
-
-              <div className="flex justify-between items-center mb-6 bg-blue-50 p-3 rounded-lg border border-blue-100">
+              <div className="flex justify-between items-center mb-6 bg-blue-50 p-3 rounded-lg">
                 <span className="text-[#123891] font-bold">Total</span>
                 <span className="text-2xl font-bold text-[#123891]">{formatRupiah(totalPrice)}</span>
               </div>
-
-              <button 
-                onClick={handleSubmit}
-                disabled={isSubmitting}
-                className={`w-full text-white py-3.5 rounded-lg font-bold shadow-md transition-all ${isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#123891] hover:bg-[#0e2c75] hover:shadow-lg'}`}
-              >
+              <button onClick={handleSubmit} disabled={isSubmitting} className="w-full bg-[#123891] text-white py-3 rounded-lg font-bold hover:bg-[#0d2654] disabled:bg-gray-400">
                 {isSubmitting ? 'Mengupload...' : 'Lanjut Pembayaran'}
               </button>
             </div>
           </div>
-
         </div>
       </div>
     </>

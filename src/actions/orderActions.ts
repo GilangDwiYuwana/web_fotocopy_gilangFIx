@@ -1,6 +1,6 @@
 'use server';
 
-// Menggunakan relative path untuk menghindari masalah alias
+// Gunakan relative path untuk menghindari masalah alias
 import { prisma } from '@/src/lib/prisma'; 
 import { revalidatePath } from 'next/cache';
 import { writeFile, mkdir } from 'fs/promises';
@@ -14,7 +14,8 @@ export type FrontendOrder = {
   total: number;
   status: 'Menunggu Pembayaran' | 'Dibayar' | 'Diproses' | 'Selesai' | 'Dibatalkan';
   items?: any[];
-  fileUrl?: string; // Link ke file asli
+  fileUrl?: string;          // Link Dokumen (PDF yang mau dicetak)
+  paymentProofUrl?: string;  // Link Bukti Transfer (Struk pembayaran) - SUDAH DITAMBAHKAN
 };
 
 // ==========================================
@@ -31,7 +32,6 @@ export async function uploadOrderFile(formData: FormData) {
   const buffer = Buffer.from(bytes);
 
   // Buat nama file unik agar tidak bentrok
-  // Contoh: ORD-1709999-dokumen_saya.pdf
   const uniqueName = `ORD-${Date.now()}-${file.name.replace(/\s/g, '_')}`;
   
   // Tentukan folder penyimpanan: root_project/public/uploads
@@ -57,6 +57,7 @@ export async function getOrders(): Promise<FrontendOrder[]> {
   const orders = await prisma.orders.findMany({
     include: {
       users: true,
+      payments: true, // Ambil data payments untuk cek bukti transfer
     },
     orderBy: {
       created_at: 'desc',
@@ -64,15 +65,26 @@ export async function getOrders(): Promise<FrontendOrder[]> {
   });
 
   return orders.map((o) => {
+    // Logika mengambil Bukti Transfer dari kolom proof_url
+    // Kita ambil pembayaran terbaru yang memiliki bukti
+    const paymentWithProof = o.payments
+        .filter(p => p.proof_url) // Hanya ambil yang ada buktinya
+        .sort((a, b) => b.id - a.id)[0]; // Urutkan dari yang terbaru (ID terbesar)
+    
+    const proofUrl = paymentWithProof?.proof_url || undefined;
+
     return {
       id: o.order_id,
       customer: o.users.name,
       date: o.created_at.toISOString().split('T')[0],
       total: Number(o.total_amount),
       status: mapStatus(o.status, o.payment_status),
-      // AMBIL URL ASLI DARI DATABASE
-      // Jika null di db, kembalikan undefined agar UI tidak error
+      
+      // Dokumen yang mau dicetak (dari tabel orders)
       fileUrl: o.file_url || undefined, 
+      
+      // Bukti Transfer (dari tabel payments)
+      paymentProofUrl: proofUrl, 
     };
   });
 }
@@ -85,6 +97,7 @@ export async function getOrderById(orderIdString: string) {
     where: { order_id: orderIdString },
     include: {
       users: true,
+      payments: true, // Include payments juga
       order_items: {
         include: {
           services: true,
@@ -95,6 +108,13 @@ export async function getOrderById(orderIdString: string) {
 
   if (!order) return null;
 
+  // Logika Bukti Transfer untuk Detail
+  const paymentWithProof = order.payments
+        .filter(p => p.proof_url)
+        .sort((a, b) => b.id - a.id)[0];
+  
+  const proofUrl = paymentWithProof?.proof_url || undefined;
+
   return {
     id: order.order_id,
     customerName: order.users.name,
@@ -102,8 +122,10 @@ export async function getOrderById(orderIdString: string) {
     date: order.created_at.toISOString().split('T')[0],
     total: Number(order.total_amount),
     status: mapStatus(order.status, order.payment_status),
-    // Ambil URL asli
+    
     fileUrl: order.file_url || undefined,
+    paymentProofUrl: proofUrl,
+
     items: order.order_items.map((item) => ({
       serviceName: item.services.name,
       category: (item.services.category || '').toString(),
@@ -132,7 +154,7 @@ export async function createOrder(data: {
       total_amount: data.total,
       status: 'Menunggu',
       payment_status: 'Pending',
-      file_url: data.fileUrl, // <-- Simpan URL file ke Database
+      file_url: data.fileUrl, // <-- Simpan URL file dokumen ke Database
       
       order_items: {
         create: data.items.map(item => ({
