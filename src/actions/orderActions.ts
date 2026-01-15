@@ -15,7 +15,8 @@ export type FrontendOrder = {
   status: 'Menunggu Pembayaran' | 'Dibayar' | 'Diproses' | 'Selesai' | 'Dibatalkan';
   items?: any[];
   fileUrl?: string;          // Link Dokumen (PDF yang mau dicetak)
-  paymentProofUrl?: string;  // Link Bukti Transfer (Struk pembayaran) - SUDAH DITAMBAHKAN
+  paymentProofUrl?: string;  // Link Bukti Transfer (Struk pembayaran)
+  notes?: string;            // <--- TAMBAHAN: Field untuk pesan/catatan
 };
 
 // ==========================================
@@ -66,10 +67,9 @@ export async function getOrders(): Promise<FrontendOrder[]> {
 
   return orders.map((o) => {
     // Logika mengambil Bukti Transfer dari kolom proof_url
-    // Kita ambil pembayaran terbaru yang memiliki bukti
     const paymentWithProof = o.payments
-        .filter(p => p.proof_url) // Hanya ambil yang ada buktinya
-        .sort((a, b) => b.id - a.id)[0]; // Urutkan dari yang terbaru (ID terbesar)
+        .filter(p => p.proof_url)
+        .sort((a, b) => b.id - a.id)[0];
     
     const proofUrl = paymentWithProof?.proof_url || undefined;
 
@@ -80,11 +80,14 @@ export async function getOrders(): Promise<FrontendOrder[]> {
       total: Number(o.total_amount),
       status: mapStatus(o.status, o.payment_status),
       
-      // Dokumen yang mau dicetak (dari tabel orders)
+      // Dokumen yang mau dicetak
       fileUrl: o.file_url || undefined, 
       
-      // Bukti Transfer (dari tabel payments)
+      // Bukti Transfer
       paymentProofUrl: proofUrl, 
+
+      // Catatan
+      notes: o.notes || '-',
     };
   });
 }
@@ -97,7 +100,7 @@ export async function getOrderById(orderIdString: string) {
     where: { order_id: orderIdString },
     include: {
       users: true,
-      payments: true, // Include payments juga
+      payments: true, 
       order_items: {
         include: {
           services: true,
@@ -108,7 +111,6 @@ export async function getOrderById(orderIdString: string) {
 
   if (!order) return null;
 
-  // Logika Bukti Transfer untuk Detail
   const paymentWithProof = order.payments
         .filter(p => p.proof_url)
         .sort((a, b) => b.id - a.id)[0];
@@ -125,6 +127,7 @@ export async function getOrderById(orderIdString: string) {
     
     fileUrl: order.file_url || undefined,
     paymentProofUrl: proofUrl,
+    notes: order.notes || '-',
 
     items: order.order_items.map((item) => ({
       serviceName: item.services.name,
@@ -137,13 +140,14 @@ export async function getOrderById(orderIdString: string) {
 }
 
 // ==========================================
-// 4. BUAT PESANAN BARU (SIMPAN FILE URL)
+// 4. BUAT PESANAN BARU
 // ==========================================
 export async function createOrder(data: {
   userId: number;
   items: { serviceId: number; qty: number; price: number }[];
   total: number;
-  fileUrl: string; // <-- Wajib menerima URL file dari hasil upload
+  fileUrl: string; 
+  notes?: string; // <--- FIELD CATATAN DITAMBAHKAN DI SINI
 }) {
   const orderIdString = `ORD-${Date.now()}`;
 
@@ -154,7 +158,8 @@ export async function createOrder(data: {
       total_amount: data.total,
       status: 'Menunggu',
       payment_status: 'Pending',
-      file_url: data.fileUrl, // <-- Simpan URL file dokumen ke Database
+      file_url: data.fileUrl, 
+      notes: data.notes, // <--- DISIMPAN KE DATABASE
       
       order_items: {
         create: data.items.map(item => ({
@@ -232,7 +237,7 @@ export async function deleteOrder(orderIdString: string) {
 }
 
 // ==========================================
-// 7. AMBIL DAFTAR LAYANAN (DROPDOWN)
+// 7. AMBIL DAFTAR LAYANAN
 // ==========================================
 export async function getServicesForOrder() {
   const services = await prisma.services.findMany({

@@ -1,13 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-// Menggunakan relative path (../../../) agar aman dari error build
+// Menggunakan relative path agar aman dari error build
 import Navbar from "@/components/layouts/Navbar";
 import FileUpload from "@/components/forms/FileUpload";
 import { useRouter } from 'next/navigation';
 
 // Import Server Actions dengan relative path
-// Kita butuh 'uploadOrderFile' yang baru ditambahkan
 import { getServicesForOrder, createOrder, uploadOrderFile } from '@/src/actions/orderActions';
 // Import hook dengan relative path
 import { useAuth } from '@/src/hooks/useAuth';
@@ -40,6 +39,9 @@ export default function BuatPesanan() {
   const [pageCount, setPageCount] = useState(1);
   const [copies, setCopies] = useState(1);
   const [isReading, setIsReading] = useState(false);
+  
+  // STATE BARU: PESAN / CATATAN
+  const [notes, setNotes] = useState(''); 
 
   const [selectedPaperId, setSelectedPaperId] = useState<number>(0);
   const [selectedFinishingId, setSelectedFinishingId] = useState<number>(0);
@@ -47,30 +49,22 @@ export default function BuatPesanan() {
   const [colorMode, setColorMode] = useState('bw');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-
-  // ===============================================
-  // !!! REDIRECT GUARD & LOAD DATA !!!
-  // ===============================================
+  // --- REDIRECT GUARD ---
   useEffect(() => {
-    // 1. Tunggu cek login selesai
     if (isChecking) return;
-
-    // 2. Jika belum login, tendang ke halaman login
     if (!isLoggedIn) {
       router.push('/login');
       return;
     }
-
-    // 3. Load data layanan dari database
     loadData();
   }, [isLoggedIn, isChecking, router]); 
 
+  // --- LOAD DATA LAYANAN ---
   async function loadData() {
     try {
       const data = await getServicesForOrder();
       setDbServices(data);
 
-      // Set default pilihan kertas
       const papers = data.filter(s => s.category === 'kertas');
       if (papers.length > 0) setSelectedPaperId(papers[0].id);
     } catch (error) {
@@ -103,14 +97,11 @@ export default function BuatPesanan() {
   const finishCost = finishingPrice * copies;
   const totalPrice = printCost + finishCost;
 
-
-  // --- LOGIKA BACA PDF & SIMPAN STATE FILE ---
+  // --- LOGIKA BACA PDF ---
   const handleFileSelect = async (file: File) => {
     if (!file) return;
-    
-    setFileToUpload(file); // Simpan file ke state agar bisa diupload nanti
-    setPageCount(1);       // Reset jumlah halaman
-    
+    setFileToUpload(file);
+    setPageCount(1);
     if (file.type === 'application/pdf') {
       try {
         setIsReading(true);
@@ -120,7 +111,6 @@ export default function BuatPesanan() {
         alert(`File terbaca: ${pdf.numPages} Halaman.`);
       } catch (err) {
         console.error(err);
-        // Jangan alert error, cukup log saja agar user tidak panik
         console.log("Gagal membaca halaman PDF otomatis."); 
       } finally {
         setIsReading(false);
@@ -128,7 +118,7 @@ export default function BuatPesanan() {
     }
   };
 
-  // --- SUBMIT: UPLOAD DOKUMEN -> CREATE ORDER -> REDIRECT ---
+  // --- SUBMIT: UPLOAD DOKUMEN & CREATE ORDER ---
   async function handleSubmit() {
     const userId = getUserId();
     if (!userId) {
@@ -144,11 +134,10 @@ export default function BuatPesanan() {
     
     setIsSubmitting(true);
     try {
-      // 1. Upload File Fisik ke Server (menggunakan server action baru)
+      // 1. Upload File Fisik ke Server
       const formData = new FormData();
       formData.append('file', fileToUpload);
       
-      // Upload dan dapatkan URL file
       const uploadedFileUrl = await uploadOrderFile(formData);
 
       // 2. Siapkan Data Item
@@ -159,12 +148,13 @@ export default function BuatPesanan() {
       if (sizeMode === 'a3' && addonA3) itemsToSave.push({ serviceId: addonA3.id, qty: totalSheets, price: addonA3.price });
       if (sizeMode === 'f4' && addonF4) itemsToSave.push({ serviceId: addonF4.id, qty: totalSheets, price: addonF4.price });
 
-      // 3. Simpan Pesanan ke Database (termasuk URL file dokumen)
+      // 3. Simpan Pesanan ke Database
       const orderId = await createOrder({
         userId: userId, 
         items: itemsToSave,
         total: totalPrice,
-        fileUrl: uploadedFileUrl // Simpan link dokumen
+        fileUrl: uploadedFileUrl,
+        notes: notes // <--- TAMBAHAN: Mengirim catatan ke backend
       });
 
       // 4. Redirect ke Halaman Pembayaran
@@ -172,14 +162,13 @@ export default function BuatPesanan() {
 
     } catch (error) {
       console.error(error);
-      alert("Gagal membuat pesanan: " + error);
+      alert("Gagal membuat pesanan. " + error);
       setIsSubmitting(false);
     }
   }
 
   const formatRupiah = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
 
-  // --- TAMPILAN LOADING ---
   if (isChecking || (loading && isLoggedIn)) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8f9fb]">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#123891]"></div>
@@ -257,6 +246,18 @@ export default function BuatPesanan() {
                     </div>
                 </div>
               </div>
+
+              {/* --- TAMBAHAN: INPUT PESAN / CATATAN --- */}
+              <div className="pt-2">
+                 <label className="block text-sm font-bold mb-2 text-gray-700">Catatan Tambahan (Opsional)</label>
+                 <textarea 
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Contoh: Tolong jilid warna biru, atau potong bagian tepi..."
+                    className="w-full border border-gray-300 rounded-lg p-3 h-24 focus:ring-2 focus:ring-[#123891] outline-none resize-none"
+                 />
+              </div>
+
             </section>
           </div>
 

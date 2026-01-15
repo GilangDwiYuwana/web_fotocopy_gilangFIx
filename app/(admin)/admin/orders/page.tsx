@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
-// Menggunakan relative path untuk menghindari error module not found (Naik 3 tingkat ke src)
+// Menggunakan relative path agar aman (naik 3 level dari src/app/admin/orders ke src)
 import { getOrders, updateOrderStatus } from '@/src/actions/orderActions';
 
 // Definisi tipe data yang sesuai dengan return dari Server Action
@@ -12,7 +12,8 @@ type Order = {
   total: number;
   status: 'Menunggu Pembayaran' | 'Dibayar' | 'Diproses' | 'Selesai' | 'Dibatalkan';
   fileUrl?: string;         // Link File Dokumen
-  paymentProofUrl?: string; // Link File Bukti Transfer (Kolom Baru)
+  paymentProofUrl?: string; // Link File Bukti Transfer
+  notes?: string;           // Kolom Catatan
 };
 
 const STATUS_OPTIONS: Order['status'][] = [
@@ -62,9 +63,9 @@ export default function ManageOrdersPage() {
   }
 
   // --- FUNGSI DOWNLOAD REAL ---
-  const handleDownload = (fileUrl: string | undefined) => {
+  const handleDownload = (fileUrl: string | undefined, type: 'file' | 'proof') => {
     if (!fileUrl) {
-        alert("File belum tersedia/belum diupload.");
+        alert(`${type === 'file' ? 'Dokumen' : 'Bukti transfer'} belum tersedia/belum diupload.`);
         return;
     }
     // Langsung buka URL file di tab baru
@@ -111,7 +112,6 @@ export default function ManageOrdersPage() {
       {/* Header */}
       <div className="mb-8 px-6">
         <h1 className="text-4xl font-black text-[#0e121b] mb-2">Kelola Pesanan</h1>
-        <p className="text-lg text-[#4f6596]">Kelola semua pesanan yang masuk dari pelanggan</p>
       </div>
 
       {/* Quick Stats */}
@@ -139,145 +139,85 @@ export default function ManageOrdersPage() {
       {/* Search and Filters */}
       <div className="bg-white rounded-2xl shadow-sm border border-[#e8ebf3] p-6 mb-8 px-6 mx-6">
         <div className="space-y-4">
-          <div className="relative">
-            <svg className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[#4f6596]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              placeholder="Cari berdasarkan ID, pelanggan, atau tanggal..."
-              className="w-full pl-12 pr-4 py-3 rounded-lg border border-[#e8ebf3] focus:outline-none focus:ring-2 focus:ring-[#123891] focus:border-transparent bg-white text-[#0e121b] placeholder:text-[#4f6596]"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {['Semua Status', 'Menunggu Pembayaran', 'Dibayar', 'Diproses', 'Selesai', 'Dibatalkan'].map((status) => (
-              <button
-                key={status}
-                onClick={() => setStatusFilter(status)}
-                className={`px-4 py-2 rounded-lg font-medium transition-all text-sm ${
-                  statusFilter === status
-                    ? 'bg-[#123891] text-white shadow-lg shadow-[#123891]/30'
-                    : 'bg-[#f8f9fb] text-[#4f6596] border border-[#e8ebf3] hover:border-[#123891] hover:text-[#123891]'
-                }`}
-              >
-                {status}
-              </button>
-            ))}
-          </div>
+           <input placeholder="Cari pesanan..." className="w-full p-3 border rounded-lg" value={q} onChange={(e) => setQ(e.target.value)} />
+           <div className="flex gap-2 flex-wrap">
+             {['Semua Status', ...STATUS_OPTIONS].map(s => <button key={s} onClick={() => setStatusFilter(s)} className="px-3 py-1 bg-gray-100 rounded text-sm hover:bg-gray-200 transition">{s}</button>)}
+           </div>
         </div>
       </div>
 
       {/* Orders Table */}
       <div className="px-6">
-        <div className="bg-white rounded-2xl shadow-sm border border-[#e8ebf3] overflow-hidden hover:shadow-lg transition-all">
+        <div className="bg-white rounded-2xl shadow-sm border border-[#e8ebf3] overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="bg-gradient-to-r from-[#f8f9fb] to-[#f0f2f8] border-b border-[#e8ebf3]">
-                  <th className="px-6 py-4 text-left text-sm font-bold text-[#0e121b]">ID Pesanan</th>
-                  <th className="px-6 py-4 text-left text-sm font-bold text-[#0e121b]">Pelanggan</th>
-                  <th className="px-6 py-4 text-left text-sm font-bold text-[#0e121b]">Tanggal</th>
-                  <th className="px-6 py-4 text-left text-sm font-bold text-[#0e121b]">Total</th>
-                  <th className="px-6 py-4 text-left text-sm font-bold text-[#0e121b]">Status</th>
+                <tr className="bg-gray-50 border-b">
+                  {/* --- PEMISAHAN KOLOM DI SINI --- */}
+                  <th className="px-6 py-4 text-left font-bold text-sm text-[#0e121b]">ID</th>
+                  <th className="px-6 py-4 text-left font-bold text-sm text-[#0e121b]">Pelanggan</th>
                   
-                  {/* --- KOLOM FILE DOKUMEN --- */}
-                  <th className="px-6 py-4 text-center text-sm font-bold text-[#0e121b]">File</th>
+                  <th className="px-6 py-4 text-left font-bold text-sm text-[#0e121b]">Total</th>
                   
-                  {/* --- KOLOM BARU: BUKTI TF --- */}
-                  <th className="px-6 py-4 text-center text-sm font-bold text-[#0e121b]">Bukti TF</th>
-                  
-                  <th className="px-6 py-4 text-center text-sm font-bold text-[#0e121b]">Aksi</th>
+                  {/* KOLOM CATATAN */}
+                  <th className="px-6 py-4 text-left font-bold text-sm text-[#0e121b] min-w-[200px]">Catatan</th> 
+
+                  <th className="px-6 py-4 text-left font-bold text-sm text-[#0e121b]">Status</th>
+                  <th className="px-6 py-4 text-center font-bold text-sm text-[#0e121b]">File</th>
+                  <th className="px-6 py-4 text-center font-bold text-sm text-[#0e121b]">Bukti TF</th>
+                  <th className="px-6 py-4 text-center font-bold text-sm text-[#0e121b]">Aksi</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length > 0 ? (
                   filtered.map((o) => {
-                    const statusColor = STATUS_COLORS[o.status] || STATUS_COLORS['Menunggu Pembayaran'];
-                    return (
-                      <tr key={o.id} className="border-b border-[#e8ebf3] hover:bg-[#f8f9fb] transition-colors group">
-                        <td className="px-6 py-4">
-                          <span className="font-bold text-[#123891] bg-[#123891]/10 px-3 py-1 rounded-lg text-sm">{o.id}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="font-semibold text-[#0e121b]">{o.customer}</div>
-                        </td>
-                        <td className="px-6 py-4 text-[#4f6596]">{o.date}</td>
-                        <td className="px-6 py-4 font-bold text-[#0e121b]">
-                          Rp {o.total.toLocaleString('id-ID')}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center gap-1 px-3 py-2 rounded-lg font-semibold text-sm ${statusColor.bg} ${statusColor.text}`}>
-                            {statusColor.icon} {o.status}
-                          </span>
-                        </td>
+                     const statusColor = STATUS_COLORS[o.status] || STATUS_COLORS['Menunggu Pembayaran'];
+                     return (
+                        <tr key={o.id} className="border-b hover:bg-gray-50">
+                          {/* KOLOM ID (Plus Tanggal) */}
+                          <td className="px-6 py-4">
+                              <span className="font-bold text-blue-800 block">{o.id}</span>
+                              <span className="text-xs text-[#4f6596]">{o.date}</span>
+                          </td>
 
-                        {/* --- TOMBOL DOWNLOAD FILE DOKUMEN --- */}
-                        <td className="px-6 py-4 text-center">
-                            <button 
-                                onClick={() => handleDownload(o.fileUrl)}
-                                className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-all"
-                                title="Download File Dokumen"
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                </svg>
-                                File
-                            </button>
-                        </td>
+                          {/* KOLOM PELANGGAN */}
+                          <td className="px-6 py-4 font-semibold text-gray-700">
+                              {o.customer}
+                          </td>
 
-                        {/* --- TOMBOL DOWNLOAD BUKTI TRANSFER --- */}
-                        <td className="px-6 py-4 text-center">
-                            {o.paymentProofUrl ? (
-                                <button 
-                                    onClick={() => handleDownload(o.paymentProofUrl)}
-                                    className="inline-flex items-center gap-2 px-3 py-2 bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded-lg text-sm font-medium transition-all"
-                                    title="Download Bukti Transfer"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                                    </svg>
-                                    Bukti
-                                </button>
-                            ) : (
-                                <span className="text-xs text-gray-400 italic">Belum ada</span>
-                            )}
-                        </td>
+                          <td className="px-6 py-4 font-bold">Rp {o.total.toLocaleString()}</td>
+                          
+                          {/* KOLOM CATATAN */}
+                          <td className="px-6 py-4 text-sm text-gray-600 italic border-l">
+                              {o.notes && o.notes !== '-' ? `"${o.notes}"` : '-'}
+                          </td>
 
-                        <td className="px-6 py-4 text-center">
-                          <select
-                            value={o.status}
-                            onChange={(e) => handleUpdateStatus(o.id, e.target.value as Order['status'])}
-                            className="px-3 py-2 rounded-lg border border-[#e8ebf3] bg-white text-[#0e121b] text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#123891] focus:border-transparent cursor-pointer hover:border-[#123891] transition-all"
-                          >
-                            {STATUS_OPTIONS.map((s) => (
-                              <option key={s} value={s}>{s}</option>
-                            ))}
-                          </select>
-                        </td>
-                      </tr>
-                    );
+                          <td className="px-6 py-4">
+                             <span className={`px-2 py-1 rounded text-xs font-bold ${statusColor.bg} ${statusColor.text}`}>{o.status}</span>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                              <button onClick={() => handleDownload(o.fileUrl, 'file')} className="text-blue-600 underline text-sm hover:text-blue-800">File</button>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                              {o.paymentProofUrl ? <button onClick={() => handleDownload(o.paymentProofUrl, 'proof')} className="text-green-600 underline text-sm hover:text-green-800">Bukti</button> : '-'}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <select value={o.status} onChange={(e) => handleUpdateStatus(o.id, e.target.value as Order['status'])} className="border rounded p-1 text-sm bg-white cursor-pointer hover:border-gray-400">
+                              {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </td>
+                        </tr>
+                     );
                   })
                 ) : (
                   <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center">
-                      <div className="flex flex-col items-center gap-2">
-                        <div className="text-4xl">📭</div>
-                        <p className="text-lg font-semibold text-[#0e121b]">Tidak ada pesanan</p>
-                        <p className="text-sm text-[#4f6596]">Data akan muncul jika ada pesanan di database</p>
-                      </div>
+                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                      Tidak ada pesanan yang ditemukan.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
-          </div>
-          
-          <div className="bg-[#f8f9fb] border-t border-[#e8ebf3] px-6 py-4">
-              <p className="text-sm text-[#4f6596] font-medium">
-                Menampilkan <span className="text-[#0e121b] font-bold">{filtered.length}</span> dari <span className="text-[#0e121b] font-bold">{orders.length}</span> pesanan
-              </p>
           </div>
         </div>
       </div>
